@@ -1,0 +1,27 @@
+version:
+  format: 1
+  binary: 1.88.0
+
+workflows:
+  check:
+    - [
+      'lint',
+      'propagate-feature',
+      '--features=default',
+      '--left-side-feature-missing=ignore',
+      '--left-side-outside-workspace=ignore',
+      '--offline',
+      '--locked',
+      '--show-path',
+      '--quiet',
+    ]
+  default:
+    - [ $check.0, '--fix' ]
+
+help:
+  text: |
+    midnight-rust-bindgen uses Zepter to detect abnormalities in the feature configuration.
+    It looks like one or more checks failed; please check the console output.
+    You can try to automatically fix them by running `zepter`.
+  links:
+    - "https://github.com/ggwpez/zepter"

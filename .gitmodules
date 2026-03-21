@@ -1,0 +1,4 @@
+[submodule "compact"]
+	path = compact
+	url = https://github.com/RomarQ/compact.git
+	branch = feat/ledger-in-contract-info

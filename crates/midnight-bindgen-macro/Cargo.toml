@@ -1,0 +1,19 @@
+[package]
+name = "midnight-bindgen-macro"
+description = "Procedural macro for midnight-bindgen contract bindings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+compact-codegen = { workspace = true }
+syn = { workspace = true }
+quote = { workspace = true }
+proc-macro2 = { workspace = true }
+
+[lints]
+workspace = true

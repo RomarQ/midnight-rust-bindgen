@@ -1,0 +1,32 @@
+# Rust
+target/
+**/*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Environment
+.env
+.env.*
+
+# Nix
+result
+result-*
+
+# Compiled contract outputs — only contract-info.json is needed for codegen.
+# The rest (JS, TS, sourcemaps, ZKIR) are compiler artifacts we don't use.
+tests/fixtures/compiled/*/.checksum
+tests/fixtures/compiled/*/contract/
+tests/fixtures/compiled/*/zkir/
+plans/
