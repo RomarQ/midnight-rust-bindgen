@@ -81,10 +81,17 @@ pub fn generate_crate(info: &ContractInfo, contract_name: &str) -> GeneratedCrat
 }
 
 /// Generate the Rust bindings as a `TokenStream` for use with the proc macro.
-/// Generated code uses `midnight_bindgen::*` for runtime types.
-pub fn generate_bindings(info: &ContractInfo, contract_name: &str) -> TokenStream {
-    let crate_path = quote! { midnight_bindgen };
-    let mut ctx = EmitCtxt::new(info, contract_name, &crate_path);
+///
+/// `crate_path` controls the import path for runtime types (e.g. `midnight_bindgen`
+/// or `midnight_core::midnight_bindgen`). When `None`, defaults to `midnight_bindgen`.
+pub fn generate_bindings(
+    info: &ContractInfo,
+    contract_name: &str,
+    crate_path: Option<&TokenStream>,
+) -> TokenStream {
+    let default_path = quote! { midnight_bindgen };
+    let crate_path = crate_path.unwrap_or(&default_path);
+    let mut ctx = EmitCtxt::new(info, contract_name, crate_path);
     ctx.expand()
 }
 
