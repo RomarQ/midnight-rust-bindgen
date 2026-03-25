@@ -275,9 +275,24 @@ fn emit_lazy_field_accessor(
             field.cell_type.as_ref(),
         )),
         "counter" => Some(emit_lazy_counter_accessor(&method_name, &doc, &path_expr)),
-        "map" => Some(emit_lazy_map_accessor(&method_name, &doc, &path_expr, field)),
-        "set" => Some(emit_lazy_set_accessor(&method_name, &doc, &path_expr, field)),
-        "list" => Some(emit_lazy_list_accessor(&method_name, &doc, &path_expr, field)),
+        "map" => Some(emit_lazy_map_accessor(
+            &method_name,
+            &doc,
+            &path_expr,
+            field,
+        )),
+        "set" => Some(emit_lazy_set_accessor(
+            &method_name,
+            &doc,
+            &path_expr,
+            field,
+        )),
+        "list" => Some(emit_lazy_list_accessor(
+            &method_name,
+            &doc,
+            &path_expr,
+            field,
+        )),
         // Merkle trees don't support single-value lookup via the RPC.
         _ => None,
     }
@@ -330,14 +345,10 @@ fn emit_lazy_counter_accessor(
 
 fn emit_lazy_map_accessor(
     method_name: &Ident,
-    doc: &str,
+    _doc: &str,
     path_expr: &TokenStream,
     field: &LedgerField,
 ) -> TokenStream {
-    let key_ty = field
-        .key_type
-        .as_ref()
-        .map_or_else(|| quote! { Vec<u8> }, type_to_tokens);
     let val_ty = field
         .value_type
         .as_ref()
@@ -365,7 +376,7 @@ fn emit_lazy_map_accessor(
 
 fn emit_lazy_set_accessor(
     method_name: &Ident,
-    doc: &str,
+    _doc: &str,
     path_expr: &TokenStream,
     field: &LedgerField,
 ) -> TokenStream {
@@ -387,7 +398,7 @@ fn emit_lazy_set_accessor(
 
 fn emit_lazy_list_accessor(
     method_name: &Ident,
-    doc: &str,
+    _doc: &str,
     path_expr: &TokenStream,
     field: &LedgerField,
 ) -> TokenStream {
@@ -395,7 +406,10 @@ fn emit_lazy_list_accessor(
         .element_type
         .as_ref()
         .map_or_else(|| quote! { Vec<u8> }, type_to_tokens);
-    let doc = format!("Get an element by index from the `{}` list (list).", field.name);
+    let doc = format!(
+        "Get an element by index from the `{}` list (list).",
+        field.name
+    );
     quote! {
         #[doc = #doc]
         pub async fn #method_name(&self, index: usize) -> Result<Option<#elem_ty>, lazy::ContractError> {

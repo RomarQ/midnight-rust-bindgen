@@ -39,6 +39,7 @@ pub struct StateQueryResult {
 ///
 /// This is the only method generated lazy accessors need. Implement this
 /// for your provider type to enable lazy contract state queries.
+#[allow(async_fn_in_trait)]
 pub trait StateQueryProvider: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
@@ -85,7 +86,9 @@ pub enum ContractError {
 /// each path element is a hex-encoded `Serializable::serialize` output
 /// of `AlignedValue::from(index as u8)`.
 pub fn index_to_query_key(index: usize) -> String {
-    let av: midnight_base_crypto::fab::AlignedValue = (index as u8).into();
+    let av: midnight_base_crypto::fab::AlignedValue = u8::try_from(index)
+        .expect("field index must fit in u8")
+        .into();
     let mut buf = Vec::with_capacity(av.serialized_size());
     av.serialize(&mut buf)
         .expect("AlignedValue serialization to Vec never fails");
@@ -117,7 +120,9 @@ pub fn build_query_path(indices: &[usize]) -> Vec<String> {
 ///
 /// Generated lazy accessors call this, then use `cell_value` + `TryFrom<&ValueSlice>`
 /// to convert to the target type while the `StateValue` is still alive.
-pub fn decode_state_value(result: &StateQueryResult) -> Result<StateValue<InMemoryDB>, ContractError> {
+pub fn decode_state_value(
+    result: &StateQueryResult,
+) -> Result<StateValue<InMemoryDB>, ContractError> {
     if let Some(err) = &result.error {
         return Err(ContractError::QueryFailed(err.clone()));
     }

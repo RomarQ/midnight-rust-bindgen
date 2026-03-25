@@ -696,11 +696,10 @@ mod lazy_tests {
         #[tokio::test]
         async fn lazy_round_zero() {
             let round_path = lazy::build_query_path(&[0]);
-            let provider = MockProvider::new()
-                .insert(
-                    &round_path.iter().map(String::as_str).collect::<Vec<_>>(),
-                    StateValue::from(0u64),
-                );
+            let provider = MockProvider::new().insert(
+                &round_path.iter().map(String::as_str).collect::<Vec<_>>(),
+                StateValue::from(0u64),
+            );
             let query = CounterQuery::new(provider, "mock");
             assert_eq!(query.round().await.unwrap(), 0u64);
         }
@@ -708,11 +707,10 @@ mod lazy_tests {
         #[tokio::test]
         async fn lazy_round_nonzero() {
             let round_path = lazy::build_query_path(&[0]);
-            let provider = MockProvider::new()
-                .insert(
-                    &round_path.iter().map(String::as_str).collect::<Vec<_>>(),
-                    StateValue::from(42u64),
-                );
+            let provider = MockProvider::new().insert(
+                &round_path.iter().map(String::as_str).collect::<Vec<_>>(),
+                StateValue::from(42u64),
+            );
             let query = CounterQuery::new(provider, "mock");
             assert_eq!(query.round().await.unwrap(), 42u64);
         }
@@ -801,7 +799,10 @@ mod lazy_tests {
             let provider = MockProvider::new();
             let query = GatewayQuery::new(provider, "mock");
             use midnight_bindgen::TransientFr;
-            let result = query.egress_jobs(AlignedValue::from(TransientFr::from(999u64))).await.unwrap();
+            let result = query
+                .egress_jobs(AlignedValue::from(TransientFr::from(999u64)))
+                .await
+                .unwrap();
             assert!(result.is_none());
         }
     }

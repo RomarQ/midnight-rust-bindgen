@@ -53,8 +53,7 @@ impl<'a> EmitCtxt<'a> {
         );
         let circuit_types = circuits::emit_circuit_types(&self.info.circuits, &self.info.witnesses);
         let wrapper = ledger::emit_ledger_wrapper(&self.info.ledger, self.contract_name);
-        let lazy_wrapper =
-            ledger::emit_lazy_ledger_wrapper(&self.info.ledger, self.contract_name);
+        let lazy_wrapper = ledger::emit_lazy_ledger_wrapper(&self.info.ledger, self.contract_name);
 
         quote! {
             use #crate_path::*;
