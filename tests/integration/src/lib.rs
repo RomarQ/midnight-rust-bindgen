@@ -613,8 +613,8 @@ mod lazy_tests {
     use std::collections::HashMap;
 
     use midnight_bindgen::{
-        AlignedValue, InMemoryDB, StateValue, StorageHashMap,
-        lazy::{self, ContractError, StateQuery, StateQueryProvider, StateQueryResult},
+        AlignedValue, InMemoryDB, StateValue,
+        lazy::{self, StateQuery, StateQueryProvider, StateQueryResult},
         tagged_serialize,
     };
 
