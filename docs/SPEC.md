@@ -67,7 +67,7 @@ midnight-bindgen                        <- user-facing: one dependency
 
 **`compact-codegen`** -- Code generation library + CLI binary. Parses `contract-info.json` into `ContractInfo` IR, generates Rust code as `proc_macro2::TokenStream` using `quote!`. The CLI formats the output via `prettyplease` and writes a standalone Cargo crate.
 
-**`midnight-bindgen-runtime`** -- Runtime support for generated code. Provides `StateError`, typed accessors (`MapAccessor`, `SetAccessor`, `ListAccessor`, `MerkleTreeAccessor`), `Bytes<N>` newtype, navigation helpers (`cell_value`, `get_field`, `get_field_path`, `variant_name`), and re-exports midnight-ledger types needed by generated code (`Aligned`, `Alignment`, `AlignedValue`, `ValueSlice`, `InvalidBuiltinDecode`, `ContractState`, `StateValue`, `InMemoryDB`, `tagged_deserialize`, `TransientFr`, `EmbeddedGroupAffine`, `MerkleTree`, `MerkleTreeDigest`, etc.). Also re-exports `hex` so generated `from_hex` code works without an additional dependency.
+**`midnight-bindgen-runtime`** -- Runtime support for generated code. Provides `StateError`, typed accessors (`MapAccessor`, `SetAccessor`, `ListAccessor`, `MerkleTreeAccessor`), `Bytes<N>` newtype, navigation helpers (`cell_value`, `get_field`, `get_field_path`, `variant_name`), and re-exports midnight-ledger types needed by generated code (`Aligned`, `Alignment`, `AlignedValue`, `ValueSlice`, `InvalidBuiltinDecode`, `ContractState`, `StateValue`, `InMemoryDB`, `tagged_deserialize`, `TransientFr`, `EmbeddedGroupAffine`, `MerkleTree`, `MerkleTreeDigest`, etc.). Also re-exports `hex` so generated `from_hex` code works without an additional dependency. The `lazy` module provides the `StateQueryProvider` trait, `ContractError`, `StateQuery`/`StateQueryResult` types, and helpers (`index_to_query_key`, `build_query_path`, `decode_state_value`) for per-field RPC queries.
 
 ### Code generation pipeline
 
@@ -84,6 +84,7 @@ contract-info.json (file on disk)
   +-- emit_data_types()          -> quote! { pub struct X { ... } impl Aligned ... impl TryFrom<&ValueSlice> ... }
   +-- emit_circuit_types()       -> quote! { pub struct XCall { ... } pub type XReturn = T; pub enum Calls { ... } }
   +-- emit_ledger_wrapper()      -> quote! { pub struct Gateway { ... } impl Gateway { from_hex, accessors } }
+  +-- emit_lazy_ledger_wrapper() -> quote! { pub struct GatewayQuery<P> { ... } impl { async accessors } }
         |
   proc_macro2::TokenStream
         |
@@ -390,6 +391,102 @@ The ledger wrapper's `from_hex` method uses `hex::decode` + `tagged_deserialize`
 
 ---
 
+## Lazy state queries
+
+The eager approach (`from_hex`) downloads the entire contract state blob and deserializes it in memory. For contracts with large state (many map entries, deep merkle trees), this is O(n) in state size even when the caller only needs one field.
+
+The lazy approach generates a `{Name}Query<P>` struct alongside the eager one. Each accessor makes an individual `query_contract_state` RPC call to the node, fetching only the requested field -- O(log n) per query.
+
+### `StateQueryProvider` trait
+
+Defined in `midnight_bindgen::lazy`, this is the only trait downstream providers need to implement:
+
+```rust
+pub trait StateQueryProvider: Send + Sync {
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    async fn query_contract_state(
+        &self,
+        address: &str,
+        queries: Vec<StateQuery>,
+    ) -> Result<Vec<StateQueryResult>, Self::Error>;
+}
+```
+
+The trait has no dependencies outside of `std` -- it uses native async (no `async_trait` macro). Downstream crates (e.g., `midnight-provider` in `midnight-rs`) implement it for their concrete provider types.
+
+### `StateQuery` and `StateQueryResult`
+
+```rust
+pub struct StateQuery {
+    pub path: Vec<String>,  // hex-encoded serialized AlignedValue keys
+}
+
+pub struct StateQueryResult {
+    pub query: StateQuery,
+    pub value: Option<String>,  // hex-encoded tagged-serialized StateValue
+    pub error: Option<String>,
+}
+```
+
+### `ContractError`
+
+```rust
+pub enum ContractError {
+    Provider(Box<dyn std::error::Error + Send + Sync>),
+    State(StateError),
+    QueryFailed(String),
+    NoValue,
+}
+```
+
+### Path encoding
+
+Field indices are converted to hex-encoded serialized `AlignedValue` keys at runtime via `index_to_query_key(index: usize)`. This uses `AlignedValue::from(index as u8)` + `Serializable::serialize` + `hex::encode`. Known values:
+
+| Index | Hex key |
+|-------|---------|
+| 0 | `4001` |
+| 1 | `0101` |
+| 2 | `0201` |
+
+For B-tree path indices (>15 fields), `build_query_path(&[usize])` converts each level to a hex key.
+
+### Generated lazy accessor flow
+
+```
+GatewayQuery::threshold(&self).await
+    |
+    build_query_path(&[FIELD_THRESHOLD])        -> vec!["4001"]
+    |
+    provider.query_contract_state(address, queries).await
+    |
+    decode_state_value(&result[0])              -> StateValue<InMemoryDB>
+    |
+    cell_value(&sv)                             -> &AlignedValue
+    |
+    u8::try_from(&*av.value)                    -> u8
+```
+
+### Supported storage kinds (lazy)
+
+| Storage | Lazy accessor | Signature |
+|---------|--------------|-----------|
+| `cell` | Read value | `field() -> Result<T, ContractError>` |
+| `counter` | Read value | `field() -> Result<u64, ContractError>` |
+| `map` | Lookup by key | `field(key: impl Into<AlignedValue>) -> Result<Option<V>, ContractError>` |
+| `set` | Membership check | `field(key: impl Into<AlignedValue>) -> Result<bool, ContractError>` |
+| `list` | Get by index | `field(index: usize) -> Result<Option<T>, ContractError>` |
+| `merkle-tree` | Not supported | Tree structure doesn't map to single-value RPC queries |
+
+Map lookups return `None` when the key is not found (the RPC returns no value and no error). Set membership returns `true` if the key exists (sets store `Null` values for present keys). List access returns `None` for out-of-bounds indices.
+
+### No indexer required
+
+Lazy queries use the node's `midnight_queryContractState` RPC directly. Unlike the eager path (which fetches the full hex state from the indexer's GraphQL API), lazy queries only need a node WebSocket connection.
+
+---
+
 ## `StateError`
 
 A unified error type for all deserialization and navigation failures:
@@ -423,11 +520,16 @@ For a contract (e.g., MCS gateway with 10 ledger fields, 3 structs, 2 enums, 6 c
 5. **Deserialization** -- `impl TryFrom<&ValueSlice> for EgressJob` (tuple decomposition)
 6. **Circuit types** -- `pub struct WithdrawCall { ... }`, `pub type WithdrawReturn = u128;`, `pub enum Calls { ... }`
 7. **Ledger wrapper** -- `pub struct Gateway` with `new(state)`, `from_hex(hex)`, and typed accessor methods per field
-8. **Maybe helpers** -- `into_option()` method on structs matching the `Maybe<T>` pattern
+8. **Lazy query wrapper** -- `pub struct GatewayQuery<P: StateQueryProvider>` with async accessor methods for cell/counter fields
+9. **Maybe helpers** -- `into_option()` method on structs matching the `Maybe<T>` pattern
 
 ### Scope: read-only state access
 
-The tool generates **read-only deserialization** bindings. It does NOT generate:
+The tool generates **read-only deserialization** bindings in two modes:
+- **Eager** -- `{Name}::from_hex()` downloads the full state blob and provides synchronous typed accessors for all storage kinds
+- **Lazy** -- `{Name}Query<P>` makes per-field async RPC calls to the node, supporting cell and counter fields
+
+It does NOT generate:
 - Transaction construction or submission code
 - Proof generation or verification
 - Serialization (Rust -> on-chain state)

@@ -53,6 +53,8 @@ impl<'a> EmitCtxt<'a> {
         );
         let circuit_types = circuits::emit_circuit_types(&self.info.circuits, &self.info.witnesses);
         let wrapper = ledger::emit_ledger_wrapper(&self.info.ledger, self.contract_name);
+        let lazy_wrapper =
+            ledger::emit_lazy_ledger_wrapper(&self.info.ledger, self.contract_name);
 
         quote! {
             use #crate_path::*;
@@ -61,6 +63,12 @@ impl<'a> EmitCtxt<'a> {
             #data_types
             #circuit_types
             #wrapper
+
+            mod __lazy_query {
+                use super::*;
+                #lazy_wrapper
+            }
+            pub use __lazy_query::*;
         }
     }
 }
@@ -252,6 +260,25 @@ mod tests {
         // cell_value / get_field used in accessor bodies
         assert!(generated.lib_rs.contains("cell_value"));
         assert!(generated.lib_rs.contains("get_field"));
+
+        // Lazy query wrapper — map fields get key-lookup accessors
+        assert!(
+            generated.lib_rs.contains("pub struct GatewayQuery"),
+            "missing lazy GatewayQuery struct"
+        );
+        assert!(
+            generated.lib_rs.contains("async fn threshold("),
+            "missing async threshold accessor in GatewayQuery"
+        );
+        // Map accessor takes a key argument
+        assert!(
+            generated.lib_rs.contains("async fn egress_jobs("),
+            "missing async egress_jobs accessor in GatewayQuery"
+        );
+        assert!(
+            generated.lib_rs.contains("value_to_query_key"),
+            "missing value_to_query_key call for map key lookup"
+        );
     }
 
     #[test]
@@ -284,6 +311,24 @@ mod tests {
         assert!(generated.lib_rs.contains("pub struct Counter"));
         assert!(generated.lib_rs.contains("fn new("));
         assert!(generated.lib_rs.contains("from_hex"));
+
+        // Lazy query wrapper (behind cfg(feature = "provider"))
+        assert!(
+            generated.lib_rs.contains("pub struct CounterQuery"),
+            "missing lazy CounterQuery struct"
+        );
+        assert!(
+            generated.lib_rs.contains("async fn round("),
+            "missing async round accessor in CounterQuery"
+        );
+        assert!(
+            generated.lib_rs.contains("query_contract_state"),
+            "missing query_contract_state call in lazy accessor"
+        );
+        assert!(
+            generated.lib_rs.contains("decode_state_value"),
+            "missing decode_state_value call in lazy accessor"
+        );
     }
 
     #[test]
@@ -329,6 +374,26 @@ mod tests {
         assert!(generated.lib_rs.contains("MerkleTreeAccessor"));
         assert!(generated.lib_rs.contains("fn committed_votes("));
         assert!(generated.lib_rs.contains("fn eligible_voters("));
+
+        // Lazy query wrapper
+        assert!(
+            generated.lib_rs.contains("pub struct ElectionQuery"),
+            "missing lazy ElectionQuery struct"
+        );
+        // Cell/counter fields should have lazy accessors
+        assert!(
+            generated.lib_rs.contains("async fn authority("),
+            "missing async authority accessor in ElectionQuery"
+        );
+        assert!(
+            generated.lib_rs.contains("async fn tally_yes("),
+            "missing async tally_yes accessor in ElectionQuery"
+        );
+        // Set fields should have lazy membership accessors
+        assert!(
+            generated.lib_rs.contains("async fn committed("),
+            "missing async committed set accessor in ElectionQuery"
+        );
     }
 
     #[test]
@@ -419,6 +484,20 @@ mod tests {
 
         // Wrapper struct
         assert!(generated.lib_rs.contains("pub struct ManyFields"));
+
+        // Lazy query wrapper with B-tree path fields
+        assert!(
+            generated.lib_rs.contains("pub struct ManyFieldsQuery"),
+            "missing lazy ManyFieldsQuery struct"
+        );
+        // All 16 fields are cells, so all should have lazy accessors
+        for i in 1..=16 {
+            let field_name = format!("async fn f{i:02}(");
+            assert!(
+                generated.lib_rs.contains(&field_name),
+                "missing async lazy accessor for f{i:02}"
+            );
+        }
     }
 
     #[test]
@@ -450,5 +529,11 @@ mod tests {
         assert!(generated.lib_rs.contains("NoopCall"));
         // No FIELD_ constants for empty ledger
         assert!(!generated.lib_rs.contains("FIELD_"));
+
+        // Lazy query wrapper still generated (but with no accessors)
+        assert!(
+            generated.lib_rs.contains("pub struct EmptyQuery"),
+            "missing lazy EmptyQuery struct"
+        );
     }
 }

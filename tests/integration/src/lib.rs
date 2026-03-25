@@ -603,3 +603,206 @@ mod synthetic_tests {
         }
     }
 }
+
+// ===================================================================
+// Lazy query tests — mock StateQueryProvider
+// ===================================================================
+
+#[cfg(test)]
+mod lazy_tests {
+    use std::collections::HashMap;
+
+    use midnight_bindgen::{
+        AlignedValue, InMemoryDB, StateValue, StorageHashMap,
+        lazy::{self, ContractError, StateQuery, StateQueryProvider, StateQueryResult},
+        tagged_serialize,
+    };
+
+    /// Serialize a `StateValue<InMemoryDB>` to a hex string (same format
+    /// the node RPC returns).
+    fn sv_to_hex(sv: &StateValue<InMemoryDB>) -> String {
+        let mut buf = Vec::new();
+        tagged_serialize(sv, &mut buf).expect("serialize");
+        hex::encode(buf)
+    }
+
+    // ---------------------------------------------------------------
+    // Mock provider
+    // ---------------------------------------------------------------
+
+    /// A mock provider that maps `(address, path)` → `StateValue`.
+    /// The path is joined with `/` for map key convenience.
+    struct MockProvider {
+        entries: HashMap<String, StateValue<InMemoryDB>>,
+    }
+
+    impl MockProvider {
+        fn new() -> Self {
+            Self {
+                entries: HashMap::new(),
+            }
+        }
+
+        /// Insert a state value at the given query path.
+        fn insert(mut self, path: &[&str], sv: StateValue<InMemoryDB>) -> Self {
+            self.entries.insert(path.join("/"), sv);
+            self
+        }
+
+        fn path_key(path: &[String]) -> String {
+            path.join("/")
+        }
+    }
+
+    #[derive(Debug)]
+    struct MockError(String);
+    impl std::fmt::Display for MockError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "mock error: {}", self.0)
+        }
+    }
+    impl std::error::Error for MockError {}
+
+    impl StateQueryProvider for MockProvider {
+        type Error = MockError;
+
+        async fn query_contract_state(
+            &self,
+            _address: &str,
+            queries: Vec<StateQuery>,
+        ) -> Result<Vec<StateQueryResult>, MockError> {
+            Ok(queries
+                .into_iter()
+                .map(|q| {
+                    let key = Self::path_key(&q.path);
+                    let value = self.entries.get(&key).map(sv_to_hex);
+                    StateQueryResult {
+                        query: q,
+                        value,
+                        error: None,
+                    }
+                })
+                .collect())
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Counter: lazy round() accessor
+    // ---------------------------------------------------------------
+    mod counter_lazy {
+        use super::*;
+        use crate::counter::CounterQuery;
+
+        #[tokio::test]
+        async fn lazy_round_zero() {
+            let round_path = lazy::build_query_path(&[0]);
+            let provider = MockProvider::new()
+                .insert(
+                    &round_path.iter().map(String::as_str).collect::<Vec<_>>(),
+                    StateValue::from(0u64),
+                );
+            let query = CounterQuery::new(provider, "mock");
+            assert_eq!(query.round().await.unwrap(), 0u64);
+        }
+
+        #[tokio::test]
+        async fn lazy_round_nonzero() {
+            let round_path = lazy::build_query_path(&[0]);
+            let provider = MockProvider::new()
+                .insert(
+                    &round_path.iter().map(String::as_str).collect::<Vec<_>>(),
+                    StateValue::from(42u64),
+                );
+            let query = CounterQuery::new(provider, "mock");
+            assert_eq!(query.round().await.unwrap(), 42u64);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Election: lazy cell, counter, and set accessors
+    // ---------------------------------------------------------------
+    mod election_lazy {
+        use super::*;
+        use crate::election::ElectionQuery;
+        use midnight_bindgen::Bytes;
+
+        #[tokio::test]
+        async fn lazy_authority() {
+            let authority = [0xAAu8; 32];
+            let path = lazy::build_query_path(&[0]);
+            let provider = MockProvider::new().insert(
+                &path.iter().map(String::as_str).collect::<Vec<_>>(),
+                StateValue::from(AlignedValue::from(authority)),
+            );
+            let query = ElectionQuery::new(provider, "mock");
+            let result: Bytes<32> = query.authority().await.unwrap();
+            assert_eq!(*result, authority);
+        }
+
+        #[tokio::test]
+        async fn lazy_tally_yes() {
+            let path = lazy::build_query_path(&[3]);
+            let provider = MockProvider::new().insert(
+                &path.iter().map(String::as_str).collect::<Vec<_>>(),
+                StateValue::from(100u64),
+            );
+            let query = ElectionQuery::new(provider, "mock");
+            assert_eq!(query.tally_yes().await.unwrap(), 100u64);
+        }
+
+        #[tokio::test]
+        async fn lazy_set_contains() {
+            // Set stores Null for present keys
+            let key = [0x11u8; 32];
+            let field_path = lazy::build_query_path(&[7]); // committed = index 7
+            let key_hex = lazy::value_to_query_key(&AlignedValue::from(key));
+            let mut full_path = field_path.clone();
+            full_path.push(key_hex.clone());
+
+            let provider = MockProvider::new().insert(
+                &full_path.iter().map(String::as_str).collect::<Vec<_>>(),
+                StateValue::Null,
+            );
+            let query = ElectionQuery::new(provider, "mock");
+            assert!(query.committed(AlignedValue::from(key)).await.unwrap());
+        }
+
+        #[tokio::test]
+        async fn lazy_set_not_contains() {
+            // Missing key: provider returns no value, no error
+            let provider = MockProvider::new();
+            let query = ElectionQuery::new(provider, "mock");
+            let key = [0x99u8; 32];
+            assert!(!query.committed(AlignedValue::from(key)).await.unwrap());
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Gateway: lazy map key lookup
+    // ---------------------------------------------------------------
+    mod gateway_lazy {
+        use super::*;
+        use crate::gateway::GatewayQuery;
+
+        #[tokio::test]
+        async fn lazy_threshold() {
+            let path = lazy::build_query_path(&[0]);
+            let provider = MockProvider::new().insert(
+                &path.iter().map(String::as_str).collect::<Vec<_>>(),
+                StateValue::from(AlignedValue::from(5u8)),
+            );
+            let query = GatewayQuery::new(provider, "mock");
+            assert_eq!(query.threshold().await.unwrap(), 5u8);
+        }
+
+        #[tokio::test]
+        async fn lazy_map_key_not_found() {
+            // Empty provider — key not found returns None
+            let provider = MockProvider::new();
+            let query = GatewayQuery::new(provider, "mock");
+            use midnight_bindgen::TransientFr;
+            let result = query.egress_jobs(AlignedValue::from(TransientFr::from(999u64))).await.unwrap();
+            assert!(result.is_none());
+        }
+    }
+}

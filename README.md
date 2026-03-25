@@ -105,6 +105,46 @@ use gateway_contract::Gateway;
 let ledger = Gateway::from_hex(&hex_state)?;
 ```
 
+## Lazy state queries
+
+In addition to the eager `Gateway::from_hex()` approach (which downloads the full contract state blob), the bindgen generates a lazy `{Name}Query<P>` struct for each contract. Lazy accessors fetch individual fields on demand via the node's `query_contract_state` RPC -- O(log n) per field instead of O(n) for the full state.
+
+```rust
+use gateway::GatewayQuery;
+
+// P must implement midnight_bindgen::lazy::StateQueryProvider
+let query = GatewayQuery::new(provider, "contract_address_hex");
+
+let threshold: u8 = query.threshold().await?;
+let fee: u64 = query.signing_fee().await?;
+```
+
+The `StateQueryProvider` trait is defined in `midnight_bindgen::lazy` with a single method:
+
+```rust
+pub trait StateQueryProvider: Send + Sync {
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    async fn query_contract_state(
+        &self,
+        address: &str,
+        queries: Vec<StateQuery>,
+    ) -> Result<Vec<StateQueryResult>, Self::Error>;
+}
+```
+
+Implement this for your provider (e.g., via `midnight-rs`'s `MidnightProvider`). Lazy accessors are generated for all storage kinds except merkle trees:
+
+| Storage | Lazy accessor | Signature |
+|---------|--------------|-----------|
+| `cell` | Read value | `threshold() -> Result<u8>` |
+| `counter` | Read value | `round() -> Result<u64>` |
+| `map` | Lookup by key | `egress_jobs(key) -> Result<Option<EgressJob>>` |
+| `set` | Membership check | `committed(key) -> Result<bool>` |
+| `list` | Get by index | `items(index) -> Result<Option<T>>` |
+
+Lazy queries go directly to the **node RPC** -- no indexer required.
+
 ## What gets generated
 
 For the MCS gateway contract (10 ledger fields, 3 structs, 2 enums):
@@ -121,6 +161,7 @@ For the MCS gateway contract (10 ledger fields, 3 structs, 2 enums):
 | Set accessors | `Gateway::validators() -> Result<SetAccessor<EmbeddedGroupAffine>, StateError>` |
 | Maybe structs | `Maybe { is_some: bool, value: T }` with `into_option()` |
 | Curve points | `JubjubPoint` → `EmbeddedGroupAffine` (validated) |
+| Lazy query struct | `GatewayQuery<P>::threshold().await -> Result<u8, ContractError>` |
 
 ## Supported types
 
@@ -152,12 +193,12 @@ Similar to alloy's [`sol!`](https://github.com/alloy-rs/core) macro — code gen
 ```
 midnight-bindgen                        ← user-facing: one dependency
 ├── midnight-bindgen-macro              ← proc macro: reads JSON, calls codegen
-├── midnight-bindgen-runtime            ← runtime: StateError, MapAccessor, re-exports
+├── midnight-bindgen-runtime            ← runtime: StateError, MapAccessor, lazy module, re-exports
 │   └── depends on midnight-ledger      ← same crates that power the Midnight node
 └── compact-codegen                     ← code generation (quote!) + CLI
 ```
 
-The runtime is minimal — it re-exports midnight-ledger types, provides `StateError`, navigation helpers (`cell_value`, `get_field`, `get_field_path`), and typed accessors (`MapAccessor`, `SetAccessor`). Generated types implement midnight-ledger's `Aligned` and `TryFrom<&ValueSlice>` traits directly, using tuple decomposition for struct deserialization.
+The runtime is minimal — it re-exports midnight-ledger types, provides `StateError`, navigation helpers (`cell_value`, `get_field`, `get_field_path`), typed accessors (`MapAccessor`, `SetAccessor`), and a `lazy` module with `StateQueryProvider` trait, `ContractError`, and helpers for per-field RPC queries. Generated types implement midnight-ledger's `Aligned` and `TryFrom<&ValueSlice>` traits directly, using tuple decomposition for struct deserialization.
 
 ## Compiler extension
 
@@ -216,7 +257,9 @@ cargo test -p compact-codegen   # codegen tests only
 - [x] B-tree path indices (>15 fields)
 - [x] Synthetic state deserialization tests
 - [x] JubjubPoint → `EmbeddedGroupAffine` with on-curve validation
-- [ ] Upstream PR to [LFDT-Minokawa/compact](https://github.com/LFDT-Minokawa/compact)
+- [x] Lazy per-field queries via `StateQueryProvider` trait
+- [x] Lazy map key lookup, set membership, list index access
+- [ ] Upstream: [compact#237](https://github.com/LFDT-Minokawa/compact/issues/237) / [compact#248](https://github.com/LFDT-Minokawa/compact/pull/248) (open)
 - [x] List and MerkleTree typed accessors
 - [ ] Circuit call / transaction construction
 

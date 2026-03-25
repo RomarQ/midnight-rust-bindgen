@@ -8,7 +8,7 @@ pub use midnight_base_crypto::fab::{
     Aligned, AlignedValue, Alignment, InvalidBuiltinDecode, Value, ValueAtom, ValueSlice,
 };
 pub use midnight_onchain_state::state::{ContractMaintenanceAuthority, ContractState, StateValue};
-pub use midnight_serialize::tagged_deserialize;
+pub use midnight_serialize::{tagged_deserialize, tagged_serialize};
 pub use midnight_storage::db::InMemoryDB;
 pub use midnight_storage::storage::{Array as StorageArray, HashMap as StorageHashMap};
 pub use midnight_transient_crypto::curve::{EmbeddedGroupAffine, Fr as TransientFr};
