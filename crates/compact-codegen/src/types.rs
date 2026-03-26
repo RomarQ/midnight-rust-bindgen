@@ -124,6 +124,10 @@ pub struct Circuit {
     pub arguments: Vec<CircuitArgument>,
     #[serde(rename = "result-type")]
     pub result_type: TypeNode,
+    /// Portable circuit execution IR (for impure circuits).
+    /// Present when the compiler emits the `"ir"` field.
+    #[serde(default)]
+    pub ir: Option<crate::ir::CircuitIrBody>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -4,6 +4,7 @@
 //! Used internally by the proc macro and the CLI tool.
 
 pub mod expand;
+pub mod ir;
 pub mod schema;
 pub mod types;
 
