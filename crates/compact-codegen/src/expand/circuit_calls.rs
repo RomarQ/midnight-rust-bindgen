@@ -39,9 +39,11 @@ pub(crate) fn emit_circuit_call_methods(info: &ContractInfo) -> TokenStream {
 }
 
 fn emit_call_method(circuit: &Circuit, ir_json: &str) -> TokenStream {
-    let method_name = format_ident!("call_{}", circuit.name);
+    // Sanitize circuit name for Rust identifiers: replace $ and other non-ident chars
+    let sanitized = circuit.name.replace('$', "_").replace('-', "_");
+    let method_name = format_ident!("call_{}", sanitized);
     let circuit_name_str = &circuit.name;
-    let ir_const = format_ident!("__IR_{}", circuit.name.to_uppercase());
+    let ir_const = format_ident!("__IR_{}", sanitized.to_uppercase());
 
     let doc = format!(
         "Execute the `{}` circuit against the current contract state.\n\n\
