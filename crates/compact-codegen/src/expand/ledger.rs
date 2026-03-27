@@ -6,7 +6,12 @@ use crate::types::{FieldIndex, LedgerField, TypeNode};
 use super::helpers::make_ident;
 use super::types::type_to_tokens;
 
-pub(crate) fn emit_ledger_wrapper(fields: &[LedgerField], name: &str) -> TokenStream {
+pub(crate) fn emit_ledger_wrapper(
+    fields: &[LedgerField],
+    name: &str,
+    circuit_call_methods: &TokenStream,
+    info: &crate::types::ContractInfo,
+) -> TokenStream {
     let struct_name = format_ident!("{}", name);
 
     let accessors: Vec<_> = fields
@@ -18,8 +23,32 @@ pub(crate) fn emit_ledger_wrapper(fields: &[LedgerField], name: &str) -> TokenSt
         })
         .collect();
 
+    // Embed helpers JSON for circuit call methods
+    let helpers_const = if info.circuits.iter().any(|c| !c.pure && c.ir.is_some()) {
+        let helpers_json =
+            serde_json::to_string(&info.helpers).unwrap_or_else(|_| "[]".to_string());
+        quote! {
+            const __HELPERS_JSON: &str = #helpers_json;
+        }
+    } else {
+        quote! {}
+    };
+
+    // Access to the underlying state for advanced use
+    let state_accessor = quote! {
+        /// Access the underlying `ContractState` (for use with the interpreter or call builder).
+        pub fn state(&self) -> &ContractState<InMemoryDB> {
+            &self.state
+        }
+
+        /// Consume this wrapper and return the underlying `ContractState`.
+        pub fn into_state(self) -> ContractState<InMemoryDB> {
+            self.state
+        }
+    };
+
     quote! {
-        /// Typed read-only access to the contract's ledger state.
+        /// Typed access to the contract's ledger state and circuit calls.
         pub struct #struct_name {
             state: ContractState<InMemoryDB>,
         }
@@ -37,7 +66,13 @@ pub(crate) fn emit_ledger_wrapper(fields: &[LedgerField], name: &str) -> TokenSt
                 Ok(Self::new(state))
             }
 
+            #state_accessor
+
+            #helpers_const
+
             #(#accessors)*
+
+            #circuit_call_methods
         }
     }
 }

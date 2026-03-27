@@ -3,6 +3,7 @@
 //! Mirrors the alloy-rs `sol-macro-expander/src/expand/` pattern:
 //! one module per item kind, orchestrated by `EmitCtxt`.
 
+mod circuit_calls;
 mod circuits;
 mod constants;
 mod data_types;
@@ -52,11 +53,30 @@ impl<'a> EmitCtxt<'a> {
             &mut self.emitted_types,
         );
         let circuit_types = circuits::emit_circuit_types(&self.info.circuits, &self.info.witnesses);
-        let wrapper = ledger::emit_ledger_wrapper(&self.info.ledger, self.contract_name);
+        let circuit_call_methods = circuit_calls::emit_circuit_call_methods(self.info);
+        let wrapper = ledger::emit_ledger_wrapper(
+            &self.info.ledger,
+            self.contract_name,
+            &circuit_call_methods,
+            self.info,
+        );
         let lazy_wrapper = ledger::emit_lazy_ledger_wrapper(&self.info.ledger, self.contract_name);
+
+        let has_circuit_calls = self
+            .info
+            .circuits
+            .iter()
+            .any(|c| !c.pure && c.ir.is_some());
+
+        let contract_import = if has_circuit_calls {
+            quote! { use midnight_contract; }
+        } else {
+            quote! {}
+        };
 
         quote! {
             use #crate_path::*;
+            #contract_import
 
             #constants
             #data_types
@@ -497,6 +517,73 @@ mod tests {
                 "missing async lazy accessor for f{i:02}"
             );
         }
+    }
+
+    #[test]
+    fn generate_counter_with_ir() {
+        // Use an IR-containing fixture (compiled with the compiler fork).
+        // Falls back to MIDNIGHT_COMPILED_DIR env var, skips if not available.
+        let ir_path = std::env::var("MIDNIGHT_COMPILED_DIR")
+            .map(|d| format!("{d}/counter/compiler/contract-info.json"))
+            .unwrap_or_else(|_| "/tmp/compiled/counter/compiler/contract-info.json".to_string());
+
+        let json = match std::fs::read_to_string(&ir_path) {
+            Ok(j) => j,
+            Err(_) => {
+                eprintln!("skipping: no IR fixture at {ir_path}");
+                return;
+            }
+        };
+
+        let info: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let has_ir = info["circuits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| !c["ir"].is_null());
+
+        if !has_ir {
+            eprintln!("skipping: counter fixture has no IR");
+            return;
+        }
+
+        let info: crate::types::ContractInfo = serde_json::from_value(info).unwrap();
+        let generated = generate_crate(&info, "Counter");
+
+        // Should have call_increment method
+        assert!(
+            generated.lib_rs.contains("fn call_increment("),
+            "missing call_increment method in generated code:\n{}",
+            &generated.lib_rs[..500.min(generated.lib_rs.len())]
+        );
+
+        // Should have embedded IR constant
+        assert!(
+            generated.lib_rs.contains("__IR_INCREMENT"),
+            "missing __IR_INCREMENT constant"
+        );
+
+        // Should have helpers constant
+        assert!(
+            generated.lib_rs.contains("__HELPERS_JSON"),
+            "missing __HELPERS_JSON constant"
+        );
+
+        // Should reference midnight_contract
+        assert!(
+            generated.lib_rs.contains("midnight_contract"),
+            "missing midnight_contract reference"
+        );
+
+        // State accessor
+        assert!(
+            generated.lib_rs.contains("fn state("),
+            "missing state() accessor"
+        );
+        assert!(
+            generated.lib_rs.contains("fn into_state("),
+            "missing into_state() accessor"
+        );
     }
 
     #[test]

@@ -10,14 +10,14 @@
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
 // Top-level
 // ---------------------------------------------------------------------------
 
 /// Root of the standalone `circuit-ir.json` file (legacy format).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CircuitIr {
     pub version: Version,
     pub circuits: HashMap<String, CircuitDef>,
@@ -25,14 +25,14 @@ pub struct CircuitIr {
     pub helpers: HashMap<String, HelperDef>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Version {
     pub major: u32,
     pub minor: u32,
 }
 
 /// Circuit IR body embedded in a circuit entry within `contract-info.json`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CircuitIrBody {
     pub body: Stmt,
     /// The circuit's return expression, or `None` for void circuits.
@@ -40,7 +40,7 @@ pub struct CircuitIrBody {
 }
 
 /// An impure circuit definition (standalone format).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CircuitDef {
     pub name: String,
     pub body: Stmt,
@@ -49,7 +49,7 @@ pub struct CircuitDef {
 }
 
 /// A pure helper function called during circuit execution.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct HelperDef {
     pub name: String,
     pub params: Vec<Param>,
@@ -57,7 +57,7 @@ pub struct HelperDef {
     pub result: Option<Expr>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Param {
     pub name: String,
     #[serde(rename = "type")]
@@ -70,7 +70,7 @@ pub struct Param {
 
 /// A statement — executed for side effects (ledger mutations, assertions,
 /// variable bindings). Does not produce a value.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "op")]
 pub enum Stmt {
     /// Sequence of statements.
@@ -104,7 +104,7 @@ pub enum Stmt {
 // ---------------------------------------------------------------------------
 
 /// An expression — produces a value.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "op")]
 pub enum Expr {
     // -- Literals and references --
@@ -251,7 +251,7 @@ pub enum Expr {
 
 /// A single VM operation inside a `ledger-query`.
 /// These map to `onchain-vm::Op` variants.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "op")]
 pub enum LedgerOp {
     /// Duplicate the top of stack.
@@ -317,7 +317,7 @@ pub enum LedgerOp {
 }
 
 /// A path entry for `idx` operations.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "tag")]
 pub enum PathEntry {
     /// A literal value (e.g., field index).
@@ -342,7 +342,7 @@ pub enum PathEntry {
 // ---------------------------------------------------------------------------
 
 /// A type reference — uses the same vocabulary as `contract-info.json`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum TypeRef {
     Boolean,
