@@ -105,7 +105,7 @@ fn emit_field_accessor(
         field.name, field.storage
     );
 
-    match field.storage.as_str() {
+    match field.storage_kind().as_str() {
         "cell" => emit_cell_accessor(&method_name, &doc, &nav, field.cell_type.as_ref()),
         "counter" => emit_counter_accessor(&method_name, &doc, &nav),
         "map" => emit_map_accessor(&method_name, &doc, &nav, field),
@@ -288,7 +288,7 @@ fn emit_initial_state(fields: &[LedgerField], name: &str) -> TokenStream {
         let field_name = make_ident(&field.name);
         let doc = format!("Initial value for `{}`.", field.name);
 
-        match field.storage.as_str() {
+        match field.storage_kind().as_str() {
             "cell" => {
                 // Use typed fields only for simple scalar types that have
                 // Default + Into<AlignedValue>. Complex types use AlignedValue.
@@ -441,7 +441,7 @@ fn emit_lazy_field_accessor(
     );
     let path_expr = query_path_expr(const_name, field_index);
 
-    match field.storage.as_str() {
+    match field.storage_kind().as_str() {
         "cell" => Some(emit_lazy_cell_accessor(
             &method_name,
             &doc,

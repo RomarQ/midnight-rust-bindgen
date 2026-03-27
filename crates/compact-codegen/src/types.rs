@@ -46,6 +46,11 @@ pub enum FieldIndex {
 }
 
 impl LedgerField {
+    /// Storage kind normalized to lowercase (accepts both "Cell" and "cell").
+    pub fn storage_kind(&self) -> String {
+        self.storage.to_lowercase()
+    }
+
     pub fn index_usize(&self) -> Option<usize> {
         self.index.as_u64().and_then(|n| usize::try_from(n).ok())
     }
