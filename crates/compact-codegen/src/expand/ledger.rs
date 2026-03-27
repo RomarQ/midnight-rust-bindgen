@@ -301,19 +301,22 @@ fn emit_initial_state(fields: &[LedgerField], name: &str) -> TokenStream {
 
         match field.storage.as_str() {
             "cell" => {
-                if let Some(ty) = &field.cell_type {
-                    let rust_type = type_to_tokens(ty);
+                // Use typed fields only for simple scalar types that have
+                // Default + Into<AlignedValue>. Complex types use AlignedValue.
+                let is_simple = matches!(
+                    &field.cell_type,
+                    Some(TypeNode::Uint { .. }) | Some(TypeNode::Boolean)
+                );
+                if is_simple {
+                    let rust_type = type_to_tokens(field.cell_type.as_ref().unwrap());
                     field_defs.push(quote! { #[doc = #doc] pub #field_name: #rust_type });
                     field_defaults.push(quote! { #field_name: Default::default() });
-                    field_conversions.push(
-                        quote! { StateValue::from(AlignedValue::from(self.#field_name)) },
-                    );
+                    field_conversions
+                        .push(quote! { StateValue::from(AlignedValue::from(self.#field_name)) });
                 } else {
-                    field_defs.push(
-                        quote! { #[doc = #doc] pub #field_name: StateValue<InMemoryDB> },
-                    );
-                    field_defaults.push(quote! { #field_name: StateValue::Null });
-                    field_conversions.push(quote! { self.#field_name });
+                    field_defs.push(quote! { #[doc = #doc] pub #field_name: AlignedValue });
+                    field_defaults.push(quote! { #field_name: AlignedValue::from(()) });
+                    field_conversions.push(quote! { StateValue::from(self.#field_name.clone()) });
                 }
             }
             "counter" => {
@@ -334,9 +337,7 @@ fn emit_initial_state(fields: &[LedgerField], name: &str) -> TokenStream {
                     #[doc = #doc]
                     pub #field_name: StateValue<InMemoryDB>
                 });
-                field_defaults.push(
-                    quote! { #field_name: StateValue::Array(StorageArray::new()) },
-                );
+                field_defaults.push(quote! { #field_name: StateValue::Array(StorageArray::new()) });
                 field_conversions.push(quote! { self.#field_name });
             }
             "merkle-tree" | "historic-merkle-tree" => {

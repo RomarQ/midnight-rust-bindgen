@@ -606,7 +606,9 @@ mod tests {
 
         // Default impl
         assert!(
-            generated.lib_rs.contains("impl Default for GatewayInitialState"),
+            generated
+                .lib_rs
+                .contains("impl Default for GatewayInitialState"),
             "missing Default impl for GatewayInitialState"
         );
 
