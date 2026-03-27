@@ -150,6 +150,15 @@ pub enum Expr {
     #[serde(rename = "lt")]
     Lt { left: Box<Expr>, right: Box<Expr> },
 
+    #[serde(rename = "le")]
+    Le { left: Box<Expr>, right: Box<Expr> },
+
+    #[serde(rename = "gt")]
+    Gt { left: Box<Expr>, right: Box<Expr> },
+
+    #[serde(rename = "ge")]
+    Ge { left: Box<Expr>, right: Box<Expr> },
+
     // -- Data access --
     /// Struct field access by name.
     #[serde(rename = "field")]
