@@ -62,17 +62,8 @@ impl<'a> EmitCtxt<'a> {
         );
         let lazy_wrapper = ledger::emit_lazy_ledger_wrapper(&self.info.ledger, self.contract_name);
 
-        let has_circuit_calls = self
-            .info
-            .circuits
-            .iter()
-            .any(|c| !c.pure && c.ir.is_some());
-
-        let contract_import = if has_circuit_calls {
-            quote! { use midnight_contract; }
-        } else {
-            quote! {}
-        };
+        // Always import midnight_contract for from_provider and circuit calls
+        let contract_import = quote! { use midnight_contract; };
 
         quote! {
             use #crate_path::*;
@@ -583,6 +574,58 @@ mod tests {
         assert!(
             generated.lib_rs.contains("fn into_contract_state("),
             "missing into_contract_state() accessor"
+        );
+    }
+
+    #[test]
+    fn generate_gateway_initial_state() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/gateway-contract-info.json");
+        let info = crate::schema::parse_contract_info(&path).unwrap();
+        let generated = generate_crate(&info, "Gateway");
+
+        // InitialState struct
+        assert!(
+            generated.lib_rs.contains("pub struct GatewayInitialState"),
+            "missing GatewayInitialState struct"
+        );
+
+        // Fields with correct types
+        assert!(
+            generated.lib_rs.contains("pub threshold:"),
+            "missing threshold field in InitialState"
+        );
+        assert!(
+            generated.lib_rs.contains("pub signing_fee:"),
+            "missing signing_fee field in InitialState"
+        );
+        assert!(
+            generated.lib_rs.contains("pub next_job_id: u64"),
+            "missing next_job_id counter field in InitialState"
+        );
+
+        // Default impl
+        assert!(
+            generated.lib_rs.contains("impl Default for GatewayInitialState"),
+            "missing Default impl for GatewayInitialState"
+        );
+
+        // build() method
+        assert!(
+            generated.lib_rs.contains("fn build(self) -> ContractState"),
+            "missing build() on InitialState"
+        );
+
+        // into_ledger() method
+        assert!(
+            generated.lib_rs.contains("fn into_ledger(self) -> Gateway"),
+            "missing into_ledger() on InitialState"
+        );
+
+        // from_provider on Ledger
+        assert!(
+            generated.lib_rs.contains("async fn from_provider"),
+            "missing from_provider on Gateway"
         );
     }
 

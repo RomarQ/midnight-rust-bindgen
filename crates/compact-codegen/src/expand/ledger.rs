@@ -48,6 +48,9 @@ pub(crate) fn emit_ledger_wrapper(
         }
     };
 
+    // Generate InitialState struct with typed fields
+    let initial_state = emit_initial_state(fields, name);
+
     quote! {
         /// Typed access to the contract's ledger state and circuit calls.
         pub struct #struct_name {
@@ -67,6 +70,15 @@ pub(crate) fn emit_ledger_wrapper(
                 Ok(Self::new(state))
             }
 
+            /// Fetch the current contract state from a provider and wrap it.
+            pub async fn from_provider<P: midnight_contract::Provider>(
+                provider: &P,
+                address: &str,
+            ) -> Result<Self, midnight_contract::ContractError> {
+                let state = midnight_contract::fetch_state(provider, address).await?;
+                Ok(Self::new(state))
+            }
+
             #state_accessor
 
             #helpers_const
@@ -75,6 +87,8 @@ pub(crate) fn emit_ledger_wrapper(
 
             #circuit_call_methods
         }
+
+        #initial_state
     }
 }
 
@@ -241,6 +255,140 @@ fn emit_merkle_tree_accessor(method_name: &Ident, doc: &str, nav: &TokenStream) 
         pub fn #method_name(&self) -> Result<MerkleTreeAccessor<'_>, StateError> {
             let sv = #nav?;
             MerkleTreeAccessor::from_state(sv)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// InitialState: typed struct for contract deployment
+// ---------------------------------------------------------------------------
+
+fn emit_initial_state(fields: &[LedgerField], name: &str) -> TokenStream {
+    let struct_name = format_ident!("{}InitialState", name);
+    let ledger_name = format_ident!("{}", name);
+
+    if fields.is_empty() {
+        return quote! {
+            /// Initial state for deploying this contract.
+            #[derive(Debug, Clone, Default)]
+            pub struct #struct_name;
+
+            impl #struct_name {
+                /// Build the `ContractState` for deployment.
+                pub fn build(self) -> ContractState<InMemoryDB> {
+                    ContractState::new(
+                        StateValue::Array(vec![].into()),
+                        StorageHashMap::new(),
+                        ContractMaintenanceAuthority::default(),
+                    )
+                }
+
+                /// Build and wrap in the typed Ledger.
+                pub fn into_ledger(self) -> #ledger_name {
+                    #ledger_name::new(self.build())
+                }
+            }
+        };
+    }
+
+    let mut field_defs = Vec::new();
+    let mut field_defaults = Vec::new();
+    let mut field_conversions = Vec::new();
+
+    for field in fields {
+        let field_name = make_ident(&field.name);
+        let doc = format!("Initial value for `{}`.", field.name);
+
+        match field.storage.as_str() {
+            "cell" => {
+                if let Some(ty) = &field.cell_type {
+                    let rust_type = type_to_tokens(ty);
+                    field_defs.push(quote! { #[doc = #doc] pub #field_name: #rust_type });
+                    field_defaults.push(quote! { #field_name: Default::default() });
+                    field_conversions.push(
+                        quote! { StateValue::from(AlignedValue::from(self.#field_name)) },
+                    );
+                } else {
+                    field_defs.push(
+                        quote! { #[doc = #doc] pub #field_name: StateValue<InMemoryDB> },
+                    );
+                    field_defaults.push(quote! { #field_name: StateValue::Null });
+                    field_conversions.push(quote! { self.#field_name });
+                }
+            }
+            "counter" => {
+                field_defs.push(quote! { #[doc = #doc] pub #field_name: u64 });
+                field_defaults.push(quote! { #field_name: 0 });
+                field_conversions.push(quote! { StateValue::from(self.#field_name) });
+            }
+            "map" | "set" => {
+                field_defs.push(quote! {
+                    #[doc = #doc]
+                    pub #field_name: StorageHashMap<AlignedValue, StateValue<InMemoryDB>>
+                });
+                field_defaults.push(quote! { #field_name: StorageHashMap::new() });
+                field_conversions.push(quote! { StateValue::Map(self.#field_name) });
+            }
+            "list" => {
+                field_defs.push(quote! {
+                    #[doc = #doc]
+                    pub #field_name: StateValue<InMemoryDB>
+                });
+                field_defaults.push(
+                    quote! { #field_name: StateValue::Array(StorageArray::new()) },
+                );
+                field_conversions.push(quote! { self.#field_name });
+            }
+            "merkle-tree" | "historic-merkle-tree" => {
+                field_defs.push(quote! {
+                    #[doc = #doc]
+                    pub #field_name: StateValue<InMemoryDB>
+                });
+                field_defaults.push(quote! { #field_name: StateValue::Null });
+                field_conversions.push(quote! { self.#field_name });
+            }
+            _ => {
+                field_defs.push(quote! {
+                    #[doc = #doc]
+                    pub #field_name: StateValue<InMemoryDB>
+                });
+                field_defaults.push(quote! { #field_name: StateValue::Null });
+                field_conversions.push(quote! { self.#field_name });
+            }
+        }
+    }
+
+    quote! {
+        /// Initial state for deploying this contract.
+        #[derive(Debug, Clone)]
+        pub struct #struct_name {
+            #(#field_defs),*
+        }
+
+        impl Default for #struct_name {
+            fn default() -> Self {
+                Self {
+                    #(#field_defaults),*
+                }
+            }
+        }
+
+        impl #struct_name {
+            /// Build the `ContractState` for deployment.
+            pub fn build(self) -> ContractState<InMemoryDB> {
+                ContractState::new(
+                    StateValue::Array(
+                        vec![#(#field_conversions),*].into(),
+                    ),
+                    StorageHashMap::new(),
+                    ContractMaintenanceAuthority::default(),
+                )
+            }
+
+            /// Build and wrap in the typed Ledger.
+            pub fn into_ledger(self) -> #ledger_name {
+                #ledger_name::new(self.build())
+            }
         }
     }
 }
