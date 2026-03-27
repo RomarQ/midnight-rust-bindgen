@@ -34,15 +34,16 @@ pub(crate) fn emit_ledger_wrapper(
         quote! {}
     };
 
-    // Access to the underlying state for advanced use
+    // Access to the underlying state for advanced use.
+    // Named contract_state to avoid conflicts with ledger fields named "state".
     let state_accessor = quote! {
-        /// Access the underlying `ContractState` (for use with the interpreter or call builder).
-        pub fn state(&self) -> &ContractState<InMemoryDB> {
+        /// Access the underlying `ContractState`.
+        pub fn contract_state(&self) -> &ContractState<InMemoryDB> {
             &self.state
         }
 
         /// Consume this wrapper and return the underlying `ContractState`.
-        pub fn into_state(self) -> ContractState<InMemoryDB> {
+        pub fn into_contract_state(self) -> ContractState<InMemoryDB> {
             self.state
         }
     };

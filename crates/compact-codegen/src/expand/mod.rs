@@ -577,12 +577,12 @@ mod tests {
 
         // State accessor
         assert!(
-            generated.lib_rs.contains("fn state("),
-            "missing state() accessor"
+            generated.lib_rs.contains("fn contract_state("),
+            "missing contract_state() accessor"
         );
         assert!(
-            generated.lib_rs.contains("fn into_state("),
-            "missing into_state() accessor"
+            generated.lib_rs.contains("fn into_contract_state("),
+            "missing into_contract_state() accessor"
         );
     }
 
