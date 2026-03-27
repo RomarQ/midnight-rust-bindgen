@@ -23,16 +23,7 @@ pub(crate) fn emit_ledger_wrapper(
         })
         .collect();
 
-    // Embed helpers JSON for circuit call methods
-    let helpers_const = if info.circuits.iter().any(|c| !c.pure && c.ir.is_some()) {
-        let helpers_json =
-            serde_json::to_string(&info.helpers).unwrap_or_else(|_| "[]".to_string());
-        quote! {
-            const __HELPERS_JSON: &str = #helpers_json;
-        }
-    } else {
-        quote! {}
-    };
+    // Pure functions are inlined by the compiler — no __HELPERS_JSON needed.
 
     // Access to the underlying state for advanced use.
     // Named contract_state to avoid conflicts with ledger fields named "state".
@@ -80,8 +71,6 @@ pub(crate) fn emit_ledger_wrapper(
             }
 
             #state_accessor
-
-            #helpers_const
 
             #(#accessors)*
 

@@ -554,10 +554,10 @@ mod tests {
             "missing __IR_INCREMENT constant"
         );
 
-        // Should have helpers constant
+        // Pure functions are inlined — no __HELPERS_JSON needed
         assert!(
-            generated.lib_rs.contains("__HELPERS_JSON"),
-            "missing __HELPERS_JSON constant"
+            !generated.lib_rs.contains("__HELPERS_JSON"),
+            "__HELPERS_JSON should not be present (helpers inlined by compiler)"
         );
 
         // Should reference midnight_contract

@@ -92,15 +92,14 @@ fn emit_call_method(circuit: &Circuit, ir_json: &str) -> TokenStream {
                 serde_json::from_str(Self::#ir_const).expect(
                     concat!("embedded IR for `", #circuit_name_str, "` must be valid JSON")
                 );
-            let helpers: Vec<midnight_contract::compact_codegen::ir::HelperDef> =
-                serde_json::from_str(Self::__HELPERS_JSON).unwrap_or_default();
 
+            // Pure functions are inlined by the compiler — no helpers needed.
             let result = midnight_contract::interpreter::execute_with(
                 &ir,
                 &self.state,
                 #arg_bindings,
                 &midnight_contract::interpreter::NoWitnesses,
-                &helpers,
+                &[],
             )?;
 
             Ok(Self::new(result.state))
