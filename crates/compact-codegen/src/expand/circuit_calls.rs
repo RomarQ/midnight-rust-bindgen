@@ -81,7 +81,8 @@ fn emit_call_method(circuit: &Circuit, ir_json: &str) -> TokenStream {
     };
 
     quote! {
-        const #ir_const: &str = #ir_json;
+        #[doc(hidden)]
+        pub const #ir_const: &str = #ir_json;
 
         #[doc = #doc]
         pub fn #method_name(

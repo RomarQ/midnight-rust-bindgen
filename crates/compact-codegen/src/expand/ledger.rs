@@ -42,6 +42,9 @@ pub(crate) fn emit_ledger_wrapper(
     // Generate InitialState struct with typed fields
     let initial_state = emit_initial_state(fields, name);
 
+    // Generate Circuits struct with async on-chain call methods
+    let circuit_methods_struct = emit_circuits_struct(info, &struct_name);
+
     quote! {
         /// Typed access to the contract's ledger state and circuit calls.
         pub struct #struct_name {
@@ -85,25 +88,97 @@ pub(crate) fn emit_ledger_wrapper(
 
         #initial_state
 
-        /// Contract deployment builder.
+        /// A deployed contract instance with typed circuit call methods.
         ///
-        /// Creates a [`midnight_contract::ContractBuilder`] for deploying this contract.
+        /// # Example
         ///
         /// ```rust,ignore
-        /// let contract = Contract::new()
-        ///     .provider(provider)
+        /// let mut contract = Contract::deploy()
+        ///     .provider(&provider)
         ///     .initial_state(LedgerInitialState { round: 0 })
         ///     .verifier_keys("compiled/keys")
         ///     .deploy()
         ///     .await?;
+        ///
+        /// contract.circuits().increment().await?;
+        /// let ledger = contract.ledger();
         /// ```
-        pub struct Contract;
+        pub struct Contract<P>(midnight_contract::Contract<P>);
 
-        impl Contract {
-            pub fn new() -> midnight_contract::ContractBuilder {
-                midnight_contract::ContractBuilder::new()
+        impl<P> Contract<P> {
+            /// Start building a new contract deployment.
+            pub fn deploy() -> ContractDeployBuilder {
+                ContractDeployBuilder(midnight_contract::ContractBuilder::new())
             }
         }
+
+        /// Builder wrapper that returns the generated `Contract<P>` on deploy.
+        pub struct ContractDeployBuilder(midnight_contract::ContractBuilder);
+
+        impl ContractDeployBuilder {
+            pub fn provider<Q>(self, provider: Q) -> ContractDeployBuilderWithProvider<Q> {
+                ContractDeployBuilderWithProvider(self.0.provider(provider))
+            }
+        }
+
+        pub struct ContractDeployBuilderWithProvider<P>(midnight_contract::ContractBuilder<P>);
+
+        impl<P> ContractDeployBuilderWithProvider<P> {
+            pub fn initial_state(self, state: impl Into<ContractState<InMemoryDB>>) -> Self {
+                Self(self.0.initial_state(state))
+            }
+
+            pub fn verifier_keys(self, path: impl Into<std::path::PathBuf>) -> Self {
+                Self(self.0.verifier_keys(path))
+            }
+        }
+
+        impl ContractDeployBuilderWithProvider<midnight_provider::MidnightProvider> {
+            pub async fn deploy(self) -> Result<Contract<midnight_provider::MidnightProvider>, midnight_contract::ContractError> {
+                Ok(Contract(self.0.deploy().await?))
+            }
+        }
+
+        impl<'a> ContractDeployBuilderWithProvider<&'a midnight_provider::MidnightProvider> {
+            pub async fn deploy(self) -> Result<Contract<&'a midnight_provider::MidnightProvider>, midnight_contract::ContractError> {
+                Ok(Contract(self.0.deploy().await?))
+            }
+        }
+
+        impl<P: midnight_contract::Provider> Contract<P> {
+            /// The contract's on-chain address (hex string).
+            pub fn address(&self) -> &str {
+                self.0.address()
+            }
+
+            /// The current cached contract state.
+            pub fn state(&self) -> &ContractState<InMemoryDB> {
+                self.0.state()
+            }
+
+            /// Get the typed ledger from the cached state.
+            pub fn ledger(&self) -> #struct_name {
+                #struct_name::new(self.0.state().clone())
+            }
+
+            /// Refresh the cached state from the chain.
+            pub async fn sync(&mut self) -> Result<(), midnight_contract::ContractError> {
+                self.0.sync().await
+            }
+
+            /// Access on-chain circuit call methods.
+            pub fn circuits(&mut self) -> Circuits<'_, P> {
+                Circuits(&mut self.0)
+            }
+        }
+
+        impl<P> From<midnight_contract::Contract<P>> for Contract<P> {
+            fn from(inner: midnight_contract::Contract<P>) -> Self {
+                Contract(inner)
+            }
+        }
+
+        #circuit_methods_struct
     }
 }
 
@@ -664,6 +739,58 @@ fn lazy_cell_return_type(ty: &TypeNode) -> TokenStream {
         lazy_cell_return_type(inner)
     } else {
         type_to_tokens(ty)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Circuits struct — async on-chain call methods
+// ---------------------------------------------------------------------------
+
+fn emit_circuits_struct(info: &crate::types::ContractInfo, ledger_name: &Ident) -> TokenStream {
+    let mut methods = Vec::new();
+
+    for circuit in &info.circuits {
+        if circuit.pure || circuit.ir.is_none() {
+            continue;
+        }
+
+        let sanitized = circuit.name.replace('$', "_").replace('-', "_");
+        let method_name = format_ident!("{}", sanitized);
+        let circuit_name_str = &circuit.name;
+        let ir_const = format_ident!("__IR_{}", sanitized.to_uppercase());
+
+        let doc = format!(
+            "Call the `{}` circuit on-chain.\n\n\
+             Executes locally, builds a funded transaction, and submits it to the node.",
+            circuit.name
+        );
+
+        methods.push(quote! {
+            #[doc = #doc]
+            pub async fn #method_name(&mut self) -> Result<(), midnight_contract::ContractError> {
+                let ir: midnight_contract::compact_codegen::ir::CircuitIrBody =
+                    serde_json::from_str(#ledger_name::#ir_const).expect(
+                        concat!("embedded IR for `", #circuit_name_str, "` must be valid JSON")
+                    );
+                self.0.call(&ir, #circuit_name_str).await
+            }
+        });
+    }
+
+    quote! {
+        /// On-chain circuit call methods.
+        ///
+        /// Access via `contract.circuits()`. Each method executes the circuit
+        /// locally, builds a funded transaction, and submits it to the node.
+        pub struct Circuits<'a, P>(&'a mut midnight_contract::Contract<P>);
+
+        impl<'a, P> Circuits<'a, P>
+        where
+            P: std::ops::Deref<Target = midnight_provider::MidnightProvider>,
+            P: midnight_contract::Provider,
+        {
+            #(#methods)*
+        }
     }
 }
 
