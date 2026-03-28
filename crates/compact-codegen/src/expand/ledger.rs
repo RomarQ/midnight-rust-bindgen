@@ -96,7 +96,7 @@ pub(crate) fn emit_ledger_wrapper(
         /// let mut contract = Contract::deploy()
         ///     .provider(&provider)
         ///     .initial_state(LedgerInitialState { round: 0 })
-        ///     .verifier_keys("compiled/keys")
+        ///     .zk_keys("compiled")
         ///     .deploy()
         ///     .await?;
         ///
@@ -128,8 +128,8 @@ pub(crate) fn emit_ledger_wrapper(
                 Self(self.0.initial_state(state))
             }
 
-            pub fn verifier_keys(self, path: impl Into<std::path::PathBuf>) -> Self {
-                Self(self.0.verifier_keys(path))
+            pub fn zk_keys(self, path: impl Into<std::path::PathBuf>) -> Self {
+                Self(self.0.zk_keys(path))
             }
         }
 
