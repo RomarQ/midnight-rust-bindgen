@@ -105,7 +105,7 @@ pub(crate) fn emit_ledger_wrapper(
         /// ```
         pub struct Contract<P>(midnight_contract::Contract<P>);
 
-        impl<P> Contract<P> {
+        impl Contract<()> {
             /// Start building a new contract deployment.
             pub fn deploy() -> ContractDeployBuilder {
                 ContractDeployBuilder(midnight_contract::ContractBuilder::new())
