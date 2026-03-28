@@ -77,7 +77,33 @@ pub(crate) fn emit_ledger_wrapper(
             #circuit_call_methods
         }
 
+        impl midnight_contract::FromHex for #struct_name {
+            fn from_hex(hex_state: &str) -> Result<Self, StateError> {
+                #struct_name::from_hex(hex_state)
+            }
+        }
+
         #initial_state
+
+        /// Contract deployment builder.
+        ///
+        /// Creates a [`midnight_contract::ContractBuilder`] for deploying this contract.
+        ///
+        /// ```rust,ignore
+        /// let contract = Contract::new()
+        ///     .provider(provider)
+        ///     .initial_state(LedgerInitialState { round: 0 })
+        ///     .verifier_keys("compiled/keys")
+        ///     .deploy()
+        ///     .await?;
+        /// ```
+        pub struct Contract;
+
+        impl Contract {
+            pub fn new() -> midnight_contract::ContractBuilder {
+                midnight_contract::ContractBuilder::new()
+            }
+        }
     }
 }
 
@@ -277,6 +303,12 @@ fn emit_initial_state(fields: &[LedgerField], name: &str) -> TokenStream {
                     #ledger_name::new(self.build())
                 }
             }
+
+            impl From<#struct_name> for ContractState<InMemoryDB> {
+                fn from(state: #struct_name) -> Self {
+                    state.build()
+                }
+            }
         };
     }
 
@@ -378,6 +410,12 @@ fn emit_initial_state(fields: &[LedgerField], name: &str) -> TokenStream {
             /// Build and wrap in the typed Ledger.
             pub fn into_ledger(self) -> #ledger_name {
                 #ledger_name::new(self.build())
+            }
+        }
+
+        impl From<#struct_name> for ContractState<InMemoryDB> {
+            fn from(state: #struct_name) -> Self {
+                state.build()
             }
         }
     }
