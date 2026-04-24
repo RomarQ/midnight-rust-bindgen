@@ -1,5 +1,8 @@
 # midnight-rust-bindgen
 
+> [!WARNING]
+> This project has been archived. Development continues at **[romarq/midnight-rs](https://github.com/romarq/midnight-rs)**.
+
 Generate typed Rust bindings from [Midnight](https://midnight.network) [Compact](https://docs.midnight.network/compact) smart contracts.
 
 ```rust
